@@ -1,0 +1,6 @@
+nuthatch.redb
+segments/
+.duckdb/
+manifest.json
+dev.log
+*.log

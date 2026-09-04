@@ -1,0 +1,17 @@
+[nest]
+name = "perpl-nest"
+chain = "monad"
+chain_id = 143
+rpc_urls = [
+    "https://rpc1.monad.xyz",
+    "https://rpc.monad.xyz",
+    "https://rpc3.monad.xyz",
+]
+schema_version = 1
+block_timestamps = true
+
+[[contracts]]
+alias = "perpl"
+start_block = 54773010          # first Perpl log, 2026-02-11 23:02 UTC (nuthatch#1148)
+address = "0x34b6552d57a35a1d042ccae1951bd1c370112a6f"
+abi = "abis/perpl.json"
