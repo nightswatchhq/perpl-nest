@@ -39,14 +39,16 @@ def main():
     ap.add_argument("--api", default="https://app.perpl.xyz/api")
     ap.add_argument("--hours", type=int, default=24)
     ap.add_argument("--market", type=int, default=None, help="perpetual_id; default: every market in the context")
+    ap.add_argument("--from-ms", type=int, default=None, help="explicit window start (unix ms); with --to-ms overrides --hours")
+    ap.add_argument("--to-ms", type=int, default=None, help="explicit window end (unix ms)")
     a = ap.parse_args()
 
     ctx = get(f"{a.api}/v1/pub/context")
     markets = {m["perpetual_id"]: m for m in ctx["markets"]}
     if a.market is not None:
         markets = {a.market: markets[a.market]}
-    now_ms = int(time.time() * 1000)
-    from_ms = now_ms - a.hours * 3600 * 1000
+    now_ms = a.to_ms if a.to_ms else int(time.time() * 1000)
+    from_ms = a.from_ms if a.from_ms else now_ms - a.hours * 3600 * 1000
     # Compare only what the nest has sealed: hot rows can still move, sealed ones cannot.
     _, prov = nest_sql(a.nest, "select 1")
     sealed_through = prov.get("sealed_through") or 0

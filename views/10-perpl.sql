@@ -5,8 +5,11 @@
 -- (`ContractAdded` for the earliest), and the collateral token AUSD has 6 decimals
 -- (`ExchangeInitialized.collateralDecimals`, and the public context at app.perpl.xyz/api/v1/pub/context
 -- agrees: BTC price 1 / size 5, ETH 2 / 3, SOL 3 / 3, MON 6 / 0, HYPE 4 / 2, ZEC 2 / 4, LIT 5 / 1,
--- PUMP 6 / 0, checked 2026-09-04). Fee rates are scaled by 10^5, funding rates by 10^5 as
--- "percent per 100k" (dex-sdk crates/sdk/src/num.rs and state/perpetual.rs at commit 65e0e897da).
+-- PUMP 6 / 0, checked 2026-09-04). Rates - fees and funding - are parts per hundred thousand of
+-- one, i.e. fractions scaled by 10^5 (`FEE_SCALE` and `FUNDING_RATE_SCALE` are both 5 in dex-sdk
+-- crates/sdk/src/num.rs and state/perpetual.rs at commit 65e0e897da), so percent is the value
+-- divided by 1,000. Perpl's public API reports the same rate in millionths, ten times the on-chain
+-- integer; parity confirmed that on BTC (on-chain -50, API -500).
 --
 -- Suffix key, from the ABI: CNS = collateral (AUSD, 6 dp), PNS = price (market decimals),
 -- LNS = lot/size (market decimals), Hdths = hundredths, Per100K = parts per 100,000.
@@ -58,12 +61,13 @@ FROM perpl_fills
 GROUP BY 1, 2, 3;
 
 -- Funding, one row per completed funding event per market. `actualRatePct100k` is the rate applied,
--- in percent scaled by 10^5; the specified rate is what the oracle asked for before clamping.
+-- in parts per hundred thousand of one (so -50 is -0.05%); the specified rate is what was asked for
+-- before clamping.
 CREATE VIEW perpl_funding AS
 SELECT e.block_number, e.block_timestamp, m.perp_id, m.name AS market,
        CAST(e."fundingEventBlock" AS HUGEINT) AS funding_block,
-       CAST(e."specifiedRatePct100k" AS HUGEINT) / 1e5 AS specified_rate_pct,
-       CAST(e."actualRatePct100k" AS HUGEINT) / 1e5 AS rate_pct,
+       CAST(e."specifiedRatePct100k" AS HUGEINT) / 1e3 AS specified_rate_pct,
+       CAST(e."actualRatePct100k" AS HUGEINT) / 1e3 AS rate_pct,
        CAST(e."fundingPricePNS" AS HUGEINT) / POWER(10, m.price_decimals) AS funding_price,
        e."allowOverwrite" AS overwrite
 FROM perpl__funding_event_completed e
