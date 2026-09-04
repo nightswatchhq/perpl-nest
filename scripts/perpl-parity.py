@@ -58,14 +58,17 @@ def main():
 
     # ---- funding, row for row -------------------------------------------------------------------
     for pid, m in sorted(markets.items()):
-        api = get(f"{a.api}/v1/market-data/{pid}/funding/{from_ms}-{now_ms}")["d"]
+        # The API answers a window that predates the market with its first event, outside the
+        # window; only entries inside it are the claim being checked.
+        api = [e for e in get(f"{a.api}/v1/market-data/{pid}/funding/{from_ms}-{now_ms}")["d"]
+               if from_ms <= e["at"]["t"] < now_ms]
         api_by_block = {e["feb"]: e for e in api}
         rows, _ = nest_sql(a.nest, (
             'select cast("fundingEventBlock" as bigint) feb, cast("actualRatePct100k" as bigint) rate, '
             'cast("fundingPricePNS" as bigint) idx, cast("fundingPaymentPNS" as bigint) ppl, '
             'cast("fundingSumPNS" as bigint) sum from perpl__funding_event_completed '
             f'where cast("perpId" as bigint) = {pid} and block_number <= {sealed_through} '
-            f'and block_timestamp * 1000 >= {from_ms} order by feb'))
+            f'and block_timestamp * 1000 >= {from_ms} and block_timestamp * 1000 < {now_ms} order by feb'))
         nest_by_block = {r["feb"]: r for r in rows}
         common = sorted(set(api_by_block) & set(nest_by_block))
         only_api = sorted(set(api_by_block) - set(nest_by_block))
@@ -73,10 +76,14 @@ def main():
         bad = 0
         for b in common:
             x, y = api_by_block[b], nest_by_block[b]
-            if (x["rate"], x["idx"], x["ppl"], x["sum"]) != (y["rate"], y["idx"], y["ppl"], y["sum"]):
+            # The API's rate is in millionths; the chain's is parts per hundred thousand.
+            if (x["rate"], x["idx"], x["ppl"], x["sum"]) != (y["rate"] * 10, y["idx"], y["ppl"], y["sum"]):
                 bad += 1
                 print(f"  funding {m['name']} block {b}: api rate={x['rate']} idx={x['idx']} ppl={x['ppl']} sum={x['sum']} | nest rate={y['rate']} idx={y['idx']} ppl={y['ppl']} sum={y['sum']}")
-        status = "ok" if not bad and not only_api and not only_nest and common else "FAIL"
+        if not api and not rows:
+            status = "n/a"  # no funding events in this window on either side
+        else:
+            status = "ok" if not bad and not only_api and not only_nest and common else "FAIL"
         if status == "FAIL":
             failures += 1
         print(f"funding {m['name']:<5} {status}: {len(common)} events compared, {bad} differ, {len(only_api)} only in api, {len(only_nest)} only in nest")
@@ -88,7 +95,7 @@ def main():
             'select (block_timestamp // 3600) * 3600 * 1000 as t, count(*) as n, '
             'cast(round(sum(notional_usd) * 1e6) as bigint) as v '
             f'from perpl_fills where perp_id = {pid} and block_number <= {sealed_through} '
-            f'and block_timestamp * 1000 >= {from_ms} group by 1 order by 1'))
+            f'and block_timestamp * 1000 >= {from_ms} and block_timestamp * 1000 < {now_ms} group by 1 order by 1'))
         nest_by_hour = {int(r["t"]): r for r in rows}
         bad = compared = 0
         for c in candles:
@@ -105,7 +112,10 @@ def main():
             if int(c["n"]) != int(y["n"]) or int(c["v"]) != int(y["v"]):
                 bad += 1
                 print(f"  fills {m['name']} hour {t}: api n={c['n']} v={c['v']} | nest n={y['n']} v={y['v']}")
-        status = "ok" if compared and not bad else "FAIL"
+        if not compared and not bad and not any(int(c["n"]) for c in candles):
+            status = "n/a"  # no fills in this window on either side
+        else:
+            status = "ok" if compared and not bad else "FAIL"
         if status == "FAIL":
             failures += 1
         print(f"fills   {m['name']:<5} {status}: {compared} hours compared, {bad} differ")

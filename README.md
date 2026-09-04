@@ -258,11 +258,12 @@ Every on-chain amount is a fixed-point integer, and the scale is in the column's
 | `PNS` | price | 10^`price_decimals` of the market, from `perpl_markets` |
 | `LNS` | lot, i.e. size | 10^`lot_decimals` of the market |
 | `Hdths` | hundredths | 10^2 |
-| `Per100K`, `Pct100k` | parts per hundred thousand, percent scaled by 10^5 | 10^5 |
+| `Per100K`, `Pct100k` | parts per hundred thousand of one: a fraction scaled by 10^5, so `-50` is -0.05% | 10^5 (divide by 1,000 for percent) |
 
 The markets today: BTC price 1 / size 5 decimals, ETH 2 / 3, SOL 3 / 3, MON 6 / 0, HYPE 4 / 2,
 ZEC 2 / 4, LIT 5 / 1, PUMP 6 / 0, cross-checked against Perpl's public context. The views apply
-these; the raw tables do not. The reference is `crates/sdk/src/num.rs` and `state/perpetual.rs` in
+these; the raw tables do not. Perpl's API reports rates in millionths, ten times the on-chain
+integer; parity confirmed it. The reference is `crates/sdk/src/num.rs` and `state/perpetual.rs` in
 Perpl's SDK.
 
 ---
