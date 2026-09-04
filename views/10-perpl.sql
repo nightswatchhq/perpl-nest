@@ -37,7 +37,22 @@ WHERE rn = 1;
 -- Maker-side fills, one per match, in real units. The taker side (`TakerOrderFilledV2`) carries no
 -- perpId or accountId and is tied to its order only by transaction context, so volume is counted
 -- from the maker side, which is complete and market-labelled: every match has exactly one maker.
+--
+-- Both event versions. The venue's first fills (from block 55,107,491, 2026-02-13) were emitted as
+-- `MakerOrderFilled`, which has no builder fields; `MakerOrderFilledV2` took over at a later
+-- upgrade. A view over the V2 table alone read zero fills through the whole of February and March
+-- while 126,765 V1 rows sat beside it, which is how this union was found. Builder fee and id are
+-- NULL for V1 rows because the event did not carry them, not because they were zero.
 CREATE VIEW perpl_fills AS
+WITH fills AS (
+  SELECT block_number, block_timestamp, tx_hash, log_index, "perpId", "accountId", "orderId",
+         "pricePNS", "lotLNS", "feeCNS", "builderFeeCNS", "builderId"
+  FROM perpl__maker_order_filled_v2
+  UNION ALL
+  SELECT block_number, block_timestamp, tx_hash, log_index, "perpId", "accountId", "orderId",
+         "pricePNS", "lotLNS", "feeCNS", NULL AS "builderFeeCNS", NULL AS "builderId"
+  FROM perpl__maker_order_filled
+)
 SELECT f.block_number, f.block_timestamp, f.tx_hash, f.log_index,
        m.perp_id, m.name AS market,
        CAST(f."accountId" AS HUGEINT) AS maker_account_id,
@@ -49,7 +64,7 @@ SELECT f.block_number, f.block_timestamp, f.tx_hash, f.log_index,
        CAST(f."feeCNS" AS HUGEINT) / 1e6 AS maker_fee_ausd,
        CAST(f."builderFeeCNS" AS HUGEINT) / 1e6 AS builder_fee_ausd,
        CAST(f."builderId" AS HUGEINT) AS builder_id
-FROM perpl__maker_order_filled_v2 f
+FROM fills f
 JOIN perpl_markets m ON m.perp_id = CAST(f."perpId" AS HUGEINT);
 
 -- Volume by market and UTC day, in AUSD notional, from maker-side fills.

@@ -29,7 +29,7 @@ The exchange contract's ABI declares 202 events. All of them are indexed, as one
 | family | tables | what they carry |
 |---|---|---|
 | orders | `perpl__order_request_v2`, `perpl__order_placed`, `perpl__order_changed`, `perpl__order_cancelled`, `perpl__immediate_or_cancel_executed`, `perpl__order_batch_completed` | the order flow, about 85% of the venue's events |
-| fills | `perpl__maker_order_filled_v2`, `perpl__taker_order_filled_v2` | one maker and one taker row per match, with price, size, fees, balances |
+| fills | `perpl__maker_order_filled_v2`, `perpl__taker_order_filled_v2`, and their V1 shapes `perpl__maker_order_filled`, `perpl__taker_order_filled` | one maker and one taker row per match, with price, size, fees, balances; V1 has no builder fields |
 | positions | `perpl__position_opened_v2`, `perpl__position_increased_v2`, `perpl__position_decreased`, `perpl__position_closed`, `perpl__position_liquidated`, `perpl__position_deleveraged_v2`, `perpl__position_unwound_v2` | the position lifecycle, with realised PnL and funding at close |
 | funding | `perpl__funding_event_completed`, `perpl__mark_updated`, `perpl__link_price_updated` | hourly funding per market, mark and index prices |
 | accounts | `perpl__account_created`, `perpl__collateral_deposit`, `perpl__collateral_withdrawal`, `perpl__account_fee_tier_set` | who exists, what they moved in and out |
@@ -37,8 +37,11 @@ The exchange contract's ABI declares 202 events. All of them are indexed, as one
 | protocol | `perpl__exchange_initialized`, `perpl__fee_schedule_set`, `perpl__insurance_payment_for_settlement`, the `buy_to_liquidate_*` and `unwind_*` families | exchange configuration, insurance fund, forced closes |
 
 Older markets were defined before the `V2` events existed, which is why both `contract_added` and
-`contract_added_v2` are indexed and unioned in the views. Expect the same for `position_opened` and
-`order_request` early in the history.
+`contract_added_v2` are indexed and unioned in the views. The same is true of fills: the venue's
+first fills, from block 55,107,491 (2026-02-13), are `MakerOrderFilled` rows, and `perpl_fills`
+unions both shapes with NULL builder fields for V1 - 126,765 V1 fills had sealed before the V2
+table held a single row. Expect the same for `position_opened` and `order_request` early in the
+history.
 
 On top of the raw tables, `views/10-perpl.sql` defines five views in the units people use:
 
