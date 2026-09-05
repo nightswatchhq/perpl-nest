@@ -6,9 +6,10 @@ Two comparisons, both against endpoints that need no key:
   funding  FundingEventCompleted rows, keyed by fundingEventBlock, against
            GET /api/v1/market-data/{market}/funding/{from_ms}-{to_ms}, whose entries carry the same
            block as `feb`. Row for row: rate, funding price, payment, sum.
-  fills    maker-side fills per hour and market (count, AUSD notional) against
+  fills    trades per hour and market (count, taker notional in micro-AUSD) against
            GET /api/v1/market-data/{market}/candles/3600/{from_ms}-{to_ms}, whose `n` is the number
-           of fills in the hour and `v` the notional in AUSD (6 dp).
+           of trades (taker fills, each matching one or more maker fills) and `v` the sum of taker
+           lot x entry price, in AUSD at 6 dp. Measured, not assumed: see the comment at the query.
 
 Fails closed: a window the nest has not sealed or the API does not answer is a FAIL, never an
 implicit match. Prints one line per comparison and exits non-zero on any mismatch.
@@ -91,11 +92,43 @@ def main():
     # ---- fills per hour against candles ----------------------------------------------------------
     for pid, m in sorted(markets.items()):
         candles = get(f"{a.api}/v1/market-data/{pid}/candles/3600/{from_ms}-{now_ms}")["d"]
+        # The candle's `n` is trades and its `v` is the taker's lot times the volume-weighted maker
+        # price **rounded up** to the market's price unit, summed over trades. Measured, not assumed,
+        # on three BTC hours (2026-03-01 20:00 and 22:00, 2026-03-20 19:00 UTC, 311 trades): that
+        # formula reproduces the API's `v` to the unit in all three, while the exact maker-side
+        # notional (sum of price x lot) sits a few units under, the taker's `entryPricePNS` matches
+        # only when every trade opened a fresh position, and round-to-nearest or round-down match
+        # none. A trade is one `TakerOrderFilled` (V1 or V2) preceded in its transaction by the
+        # `MakerOrderFilled` rows it matched; the taker row carries no perpId, so its market and its
+        # price come from those maker rows - the ones between the previous taker fill in the
+        # transaction and itself. Scaled to micro-AUSD with the market's decimals; every market has
+        # price + lot decimals of six or fewer, so the scale factor is an integer.
         rows, _ = nest_sql(a.nest, (
+            'with tk as ('
+            '  select tx_hash, log_index as tl, block_number, block_timestamp, cast("lotLNS" as hugeint) as lot '
+            '  from perpl__taker_order_filled_v2 '
+            '  union all '
+            '  select tx_hash, log_index, block_number, block_timestamp, cast("lotLNS" as hugeint) '
+            '  from perpl__taker_order_filled), '
+            'mk as ('
+            '  select tx_hash, log_index as ml, cast("pricePNS" as hugeint) as px, cast("lotLNS" as hugeint) as lot '
+            f'  from perpl__maker_order_filled_v2 where cast("perpId" as integer) = {pid} '
+            '  union all '
+            '  select tx_hash, log_index, cast("pricePNS" as hugeint), cast("lotLNS" as hugeint) '
+            f'  from perpl__maker_order_filled where cast("perpId" as integer) = {pid}), '
+            'trades as ('
+            '  select t.tx_hash, t.tl, t.block_timestamp, t.lot as tlot, '
+            '         sum(m.px * m.lot) as pxl, sum(m.lot) as mlot '
+            f'  from tk t join mk m on m.tx_hash = t.tx_hash and m.ml < t.tl '
+            '    and m.ml > coalesce((select max(x.tl) from tk x where x.tx_hash = t.tx_hash and x.tl < t.tl), -1) '
+            f'  where t.block_number <= {sealed_through} '
+            f'    and t.block_timestamp * 1000 >= {from_ms} and t.block_timestamp * 1000 < {now_ms} '
+            '  group by 1, 2, 3, 4), '
+            'scale as (select cast(power(10, 6 - price_decimals - lot_decimals) as hugeint) as f '
+            f'          from perpl_markets where perp_id = {pid}) '
             'select (block_timestamp // 3600) * 3600 * 1000 as t, count(*) as n, '
-            'cast(round(sum(notional_usd) * 1e6) as bigint) as v '
-            f'from perpl_fills where perp_id = {pid} and block_number <= {sealed_through} '
-            f'and block_timestamp * 1000 >= {from_ms} and block_timestamp * 1000 < {now_ms} group by 1 order by 1'))
+            '       cast(sum(tlot * cast(ceil(pxl * 1.0 / mlot) as hugeint)) * (select f from scale) as bigint) as v '
+            'from trades group by 1 order by 1'))
         nest_by_hour = {int(r["t"]): r for r in rows}
         bad = compared = 0
         for c in candles:
