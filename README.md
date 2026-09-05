@@ -282,14 +282,14 @@ address works keyless and this file becomes a convenience.
 
 ## Parity
 
-`scripts/perpl-parity.py` compares the nest with Perpl's public API over the blocks the nest has
+`scripts/perpl-parity.sh` (bash, curl and jq) compares the nest with Perpl's public API over the blocks the nest has
 sealed: funding events row for row by funding block against
 `GET /api/v1/market-data/{market}/funding/{from}-{to}`, and maker-side fills per hour and market
 against the `n` and `v` of `GET /api/v1/market-data/{market}/candles/3600/{from}-{to}`. It fails
 closed. Results go on the tracking issue as they arrive.
 
 ```sh
-python3 scripts/perpl-parity.py --nest http://127.0.0.1:8288 --hours 24
+scripts/perpl-parity.sh --nest http://127.0.0.1:8288 --hours 24
 ```
 
 ## Files
